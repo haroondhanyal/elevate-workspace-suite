@@ -1,0 +1,11 @@
+<odoo>
+    <record id="view_elevate_erp_department_list" model="ir.ui.view">
+        <field name="name">elevate.erp.department.list</field><field name="model">elevate.erp.department</field>
+        <field name="arch" type="xml"><list><field name="name"/><field name="code"/><field name="company_id"/><field name="branch_id"/><field name="manager_id"/><field name="active"/></list></field>
+    </record>
+    <record id="view_elevate_erp_department_form" model="ir.ui.view">
+        <field name="name">elevate.erp.department.form</field><field name="model">elevate.erp.department</field>
+        <field name="arch" type="xml"><form><sheet><div class="oe_title"><h1><field name="name" placeholder="Department name"/></h1></div><group><group><field name="code"/><field name="company_id"/><field name="branch_id"/></group><group><field name="manager_id"/><field name="email"/><field name="active"/></group></group><notebook><page string="Notes"><field name="note" placeholder="Operational notes for this department..."/></page></notebook></sheet></form></field>
+    </record>
+    <record id="action_elevate_erp_department" model="ir.actions.act_window"><field name="name">Departments</field><field name="res_model">elevate.erp.department</field><field name="view_mode">list,form</field></record>
+</odoo>

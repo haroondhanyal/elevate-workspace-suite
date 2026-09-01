@@ -1,0 +1,1 @@
+<odoo noupdate="1"><record id="seq_elevate_erp_approval" model="ir.sequence"><field name="name">ERP Approval</field><field name="code">elevate.erp.approval</field><field name="prefix">APR-%(year)s-</field><field name="padding">5</field><field name="company_id" eval="False"/></record></odoo>

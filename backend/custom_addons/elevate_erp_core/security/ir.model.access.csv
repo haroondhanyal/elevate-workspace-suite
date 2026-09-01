@@ -1,0 +1,10 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_elevate_erp_branch_user,elevate.erp.branch.user,model_elevate_erp_branch,elevate_erp_core.group_erp_user,1,0,0,0
+access_elevate_erp_branch_manager,elevate.erp.branch.manager,model_elevate_erp_branch,elevate_erp_core.group_erp_manager,1,1,1,1
+access_elevate_erp_approval_user,elevate.erp.approval.request.user,model_elevate_erp_approval_request,elevate_erp_core.group_erp_user,1,1,1,0
+access_elevate_erp_approval_manager,elevate.erp.approval.request.manager,model_elevate_erp_approval_request,elevate_erp_core.group_erp_manager,1,1,1,1
+access_elevate_erp_department_user,elevate.erp.department.user,model_elevate_erp_department,elevate_erp_core.group_erp_user,1,0,0,0
+access_elevate_erp_department_manager,elevate.erp.department.manager,model_elevate_erp_department,elevate_erp_core.group_erp_manager,1,1,1,1
+access_elevate_erp_approval_policy_manager,elevate.erp.approval.policy.manager,model_elevate_erp_approval_policy,elevate_erp_core.group_erp_manager,1,1,1,1
+access_elevate_erp_audit_log_manager,elevate.erp.audit.log.manager,model_elevate_erp_audit_log,elevate_erp_core.group_erp_manager,1,0,0,0
+access_elevate_erp_dashboard_user,elevate.erp.dashboard.user,model_elevate_erp_dashboard,elevate_erp_core.group_erp_user,1,0,0,0

@@ -1,0 +1,10 @@
+<odoo>
+    <menuitem id="menu_elevate_erp_root" name="Elevate ERP" sequence="5" groups="elevate_erp_core.group_erp_user"/>
+    <menuitem id="menu_elevate_erp_dashboard" name="Operations Dashboard" parent="menu_elevate_erp_root" action="action_elevate_erp_dashboard" sequence="1"/>
+    <menuitem id="menu_elevate_erp_approvals" name="Approvals" parent="menu_elevate_erp_root" action="action_elevate_erp_approval" sequence="10"/>
+    <menuitem id="menu_elevate_erp_configuration" name="Configuration" parent="menu_elevate_erp_root" groups="elevate_erp_core.group_erp_manager" sequence="90"/>
+    <menuitem id="menu_elevate_erp_branches" name="Branches" parent="menu_elevate_erp_configuration" action="action_elevate_erp_branch" sequence="10"/>
+    <menuitem id="menu_elevate_erp_departments" name="Departments" parent="menu_elevate_erp_configuration" action="action_elevate_erp_department" sequence="20"/>
+    <menuitem id="menu_elevate_erp_approval_policy" name="Approval Policies" parent="menu_elevate_erp_configuration" action="action_elevate_erp_approval_policy" sequence="30"/>
+    <menuitem id="menu_elevate_erp_audit_log" name="Audit Log" parent="menu_elevate_erp_configuration" action="action_elevate_erp_audit_log" sequence="40"/>
+</odoo>

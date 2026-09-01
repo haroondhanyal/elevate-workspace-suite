@@ -1,0 +1,6 @@
+<odoo noupdate="1">
+    <record id="dashboard_elevate_erp" model="elevate.erp.dashboard">
+        <field name="name">Elevate ERP Operations Dashboard</field>
+        <field name="company_id" ref="base.main_company"/>
+    </record>
+</odoo>

@@ -1,0 +1,11 @@
+<odoo>
+    <record id="view_elevate_erp_approval_policy_list" model="ir.ui.view">
+        <field name="name">elevate.erp.approval.policy.list</field><field name="model">elevate.erp.approval.policy</field>
+        <field name="arch" type="xml"><list><field name="sequence"/><field name="name"/><field name="request_type"/><field name="company_id"/><field name="branch_id"/><field name="min_amount"/><field name="max_amount"/><field name="approver_id"/><field name="active"/></list></field>
+    </record>
+    <record id="view_elevate_erp_approval_policy_form" model="ir.ui.view">
+        <field name="name">elevate.erp.approval.policy.form</field><field name="model">elevate.erp.approval.policy</field>
+        <field name="arch" type="xml"><form><sheet><div class="oe_title"><h1><field name="name" placeholder="Policy name"/></h1></div><group><group string="Scope"><field name="active"/><field name="sequence"/><field name="request_type"/><field name="company_id"/><field name="branch_id"/></group><group string="Limits and approval"><field name="min_amount"/><field name="max_amount"/><field name="currency_id" invisible="1"/><field name="approver_id"/><field name="approver_group_id"/></group></group></sheet></form></field>
+    </record>
+    <record id="action_elevate_erp_approval_policy" model="ir.actions.act_window"><field name="name">Approval Policies</field><field name="res_model">elevate.erp.approval.policy</field><field name="view_mode">list,form</field></record>
+</odoo>
