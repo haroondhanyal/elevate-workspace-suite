@@ -1,13 +1,23 @@
 import { useState } from 'react'
+import { signIn, signUp } from '../services/auth'
 
 function AuthPage({ mode }) {
   const isLogin = mode === 'login'
   const [showPassword, setShowPassword] = useState(false)
   const [submitted, setSubmitted] = useState(false)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [form, setForm] = useState({ fullName: '', organizationName: '', email: '', password: '' })
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault()
-    setSubmitted(true)
+    setError(''); setLoading(true)
+    try {
+      if (isLogin) await signIn({ email: form.email, password: form.password })
+      else await signUp(form)
+      setSubmitted(true)
+      window.setTimeout(() => { window.location.href = '/' }, 500)
+    } catch (requestError) { setError(requestError.message) } finally { setLoading(false) }
   }
 
   return (
@@ -24,13 +34,15 @@ function AuthPage({ mode }) {
         <button className="sso-button" type="button"><span className="sso-icon">▦</span> Continue with SSO</button>
         <div className="divider"><span>or</span></div>
         <form onSubmit={handleSubmit}>
+          {!isLogin && <><label htmlFor="signup-name">Full name</label><input id="signup-name" value={form.fullName} onChange={event => setForm({ ...form, fullName: event.target.value })} placeholder="Enter your full name" required /><label htmlFor="signup-organization">Organization</label><input id="signup-organization" value={form.organizationName} onChange={event => setForm({ ...form, organizationName: event.target.value })} placeholder="Your company or team name" required /></>}
           <label htmlFor={`${mode}-email`}>Email</label>
-          <input id={`${mode}-email`} type="email" placeholder="Enter your email" required />
+          <input id={`${mode}-email`} value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} type="email" placeholder="Enter your email" required />
           <div className="password-label"><label htmlFor={`${mode}-password`}>Password</label>{isLogin && <a href="#forgot">Forgot password?</a>}</div>
-          <div className="password-input"><input id={`${mode}-password`} type={showPassword ? 'text' : 'password'} placeholder="Enter your password" minLength="8" required /><button type="button" onClick={() => setShowPassword(!showPassword)}>{showPassword ? 'Hide' : 'Show'}</button></div>
+          <div className="password-input"><input id={`${mode}-password`} value={form.password} onChange={event => setForm({ ...form, password: event.target.value })} type={showPassword ? 'text' : 'password'} placeholder="Enter your password" minLength="8" required /><button type="button" onClick={() => setShowPassword(!showPassword)}>{showPassword ? 'Hide' : 'Show'}</button></div>
           {!isLogin && <label className="checkbox-row"><input type="checkbox" required /><span>I agree to the <a href="#terms">Terms of Service</a> and <a href="#privacy">Privacy Policy</a>.</span></label>}
-          <button className="submit-button" type="submit">{isLogin ? 'Log in' : 'Sign up'} <span>→</span></button>
+          <button className="submit-button" type="submit" disabled={loading}>{loading ? 'Please wait…' : (isLogin ? 'Log in' : 'Sign up')} <span>→</span></button>
           {submitted && <p className="success-message">{isLogin ? 'You are successfully logged in.' : 'Your account is ready to begin.'}</p>}
+          {error && <p className="error-message" role="alert">{error}</p>}
         </form>
         <p className="help-copy">Need help? <a href="#help">Visit our Help Center</a></p>
         <p className="legal">By continuing, you agree to our <a href="#terms">Terms of Service</a> and <a href="#privacy">Privacy Policy</a>.</p>

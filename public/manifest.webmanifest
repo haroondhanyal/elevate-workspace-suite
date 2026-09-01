@@ -1,0 +1,9 @@
+{
+  "name": "Elevate Workspace Suite",
+  "short_name": "Elevate",
+  "start_url": "/workspace",
+  "display": "standalone",
+  "background_color": "#f7f8fc",
+  "theme_color": "#5b4bff",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

@@ -17,6 +17,7 @@
 .dark-mode .auth-header, .dark-mode .form-panel, .dark-mode .auth-card, .dark-mode .new-task-card, .dark-mode .settings-card, .dark-mode .message-list, .dark-mode .message-detail, .dark-mode .media-page .video-card { border-color: #40354b; background: #2b2335; }
 .dark-mode .auth-header .brand, .dark-mode .workspace-header .tasks-brand, .dark-mode .auth-card h1, .dark-mode .new-task-card h1, .dark-mode .settings-card h1, .dark-mode .help-content h1, .dark-mode .media-content h1, .dark-mode .message-body h2, .dark-mode .video-info h2 { color: #f4edf8; }
 .dark-mode .auth-header p, .dark-mode .form-intro, .dark-mode .heading-note, .dark-mode .help-copy, .dark-mode .legal, .dark-mode .photo-row p, .dark-mode .message-copy small, .dark-mode .message-time, .dark-mode .video-info p { color: #b9adbf; }
+.error-message{margin:12px 0 0;color:#c04c58;font-size:11px;line-height:1.45}.submit-button:disabled{cursor:wait;opacity:.7}
 .dark-mode .auth-card input, .dark-mode .new-task-card input, .dark-mode .new-task-card select, .dark-mode .new-task-card textarea, .dark-mode .settings-fields input, .dark-mode .settings-fields textarea, .dark-mode .help-search, .dark-mode .reply-box input { border-color: #51425c; color: #eee8f3; background: #352b41; }
 .dark-mode .social-button, .dark-mode .sso-button, .dark-mode .message-row, .dark-mode .reply-box { border-color: #4c3e58; color: #eee8f3; background: #352b41; }
 .dark-mode .faq-item, .dark-mode .help-categories a { color: #e7ddeb; border-color: #4a3b55; background: transparent; }

@@ -22,6 +22,8 @@ services:
       CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
     ports:
       - "8000:8000"
+    volumes:
+      - api_uploads:/app/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -41,3 +43,4 @@ services:
 volumes:
   erp_postgres:
   odoo_data:
+  api_uploads:

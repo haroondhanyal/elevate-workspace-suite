@@ -1,6 +1,7 @@
 import { getApp, getApps, initializeApp } from 'firebase/app'
 import { getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage'
 import { doc, getDoc, getFirestore, setDoc } from 'firebase/firestore'
+import { getSession } from './auth'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -28,8 +29,9 @@ export async function uploadVideoToStorage(file) {
 export const isFirebaseConfigured = hasFirebaseConfig
 
 async function requestErpApi(path, options = {}) {
+  const token = getSession()?.access_token
   const response = await fetch(`${erpApiUrl}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...options.headers },
     ...options,
   })
   if (!response.ok) {
@@ -46,8 +48,10 @@ async function requestErpApi(path, options = {}) {
 export async function loadErpData(key, fallback) {
   try {
     if (erpApiUrl) {
+      const organizationId = getSession()?.organization_id
+      if (!organizationId) return fallback
       try {
-        const record = await requestErpApi(`/data/${encodeURIComponent(key)}`)
+        const record = await requestErpApi(`/organizations/${organizationId}/data/${encodeURIComponent(key)}`)
         return record.value
       } catch (error) {
         if (error.status !== 404) throw error
@@ -69,9 +73,11 @@ export async function loadErpData(key, fallback) {
 export async function saveErpData(key, value) {
   try {
     if (erpApiUrl) {
-      await requestErpApi(`/data/${encodeURIComponent(key)}`, {
+      const session = getSession()
+      if (!session?.organization_id) throw new Error('Please sign in before saving workspace data.')
+      await requestErpApi(`/organizations/${session.organization_id}/data/${encodeURIComponent(key)}`, {
         method: 'PUT',
-        body: JSON.stringify({ value, actor: 'Raja Haroon' }),
+        body: JSON.stringify({ value, actor: session.user?.full_name || 'Workspace member' }),
       })
       return 'api'
     }

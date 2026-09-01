@@ -34,8 +34,9 @@ Elevate Workspace Suite is a unified operations platform that brings **ERP**, **
 
 ### API and data
 
-- FastAPI endpoints for workspace data, audit history, and health checks
-- PostgreSQL persistence for saved data and audit events
+- JWT authentication, organization-scoped roles, projects, issues, test runs, approvals, notifications and audit events
+- PostgreSQL persistence through versioned Alembic migrations
+- OpenAPI documentation at `/docs` and a typed dashboard summary/global-search API
 - Firebase/browser-storage fallback for frontend-only development
 
 ## Technology
@@ -83,6 +84,20 @@ npm run dev
 
 Create/select the `elevate_erp` database in Odoo, then install **Elevate ERP Core** from Apps.
 
+### Database migrations and demo data
+
+The API container applies the latest Alembic migration before it starts. For a local backend outside Docker:
+
+```bash
+cd backend
+alembic upgrade head
+python -m app.seed
+```
+
+The seed command is idempotent and creates `admin@elevate.local` with password `ChangeMe123!` for local development only. Change or remove this account before deployment.
+
+The FastAPI OpenAPI page documents every endpoint, request body, authentication requirement and response at `http://localhost:8000/docs`. Protected requests use `Authorization: Bearer <access_token>`; the frontend saves this token only after a successful login.
+
 ## Environment configuration
 
 Copy `.env.example` for frontend configuration. Use `VITE_ERP_API_URL` to connect the frontend to FastAPI. The API reads `backend/.env`; begin from `backend/.env.example`.
@@ -104,6 +119,7 @@ src/pages/erp/                         Business and operations dashboards
 backend/app/                           FastAPI application
 backend/custom_addons/elevate_erp_core Odoo custom Elevate module
 docker-compose.yml                     PostgreSQL, API, and Odoo services
+docs/erp-architecture.md               Full connected ERP workflow diagram
 ```
 
 ## Repository note
