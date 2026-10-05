@@ -9,17 +9,17 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Response, UploadFile, WebSocket, WebSocketDisconnect, status
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from .auth import create_access_token, get_current_user, hash_password, verify_password
 from .config import get_settings
 from .database import get_db
-from .email_service import send_password_reset
-from .models import ApprovalRequest, AuditEvent, InventoryItem, Invoice, Issue, IssueAttachment, IssueComment, LeaveRequest, Membership, Notification, Organization, PasswordResetToken, Project, SalesOrder, TestCase, TestEvidence, TestResult, TestRun, User, WorkspaceData
-from .schemas import (ApprovalCreate, ApprovalDecision, ApprovalRead, AttachmentCreate, AttachmentRead, AuthResponse, CommentCreate, CommentRead, DashboardSummary, HealthRead, InventoryItemCreate, InventoryItemRead, InvoiceCreate, InvoiceRead, IssueCreate, IssueRead, IssueUpdate, LeaveRequestCreate, LoginRequest, NotificationRead, OrganizationRead, PasswordResetConfirm, PasswordResetRequest, ProfileUpdate, ProjectCreate, ProjectRead, SalesOrderCreate, SalesOrderRead, SearchResult, SignupRequest, TestCaseCreate, TestCaseRead, TestResultRead, TestResultUpsert, TestRunCreate, TestRunRead, UserRead, WorkspaceDataRead, WorkspaceDataWrite)
+from .email_service import send_password_reset, send_workspace_invitation
+from .models import ApprovalRequest, AuditEvent, InventoryItem, Invoice, Issue, IssueAttachment, IssueComment, LeaveRequest, LoginAttempt, Membership, Notification, Organization, PasswordResetToken, Project, SalesOrder, TestCase, TestEvidence, TestResult, TestRun, User, WorkspaceData, WorkspaceInvitation
+from .schemas import (ApprovalCreate, ApprovalDecision, ApprovalRead, AttachmentCreate, AttachmentRead, AuthResponse, CommentCreate, CommentRead, DashboardSummary, HealthRead, InventoryItemCreate, InventoryItemRead, InvitationAccept, InvitationCreate, InvitationRead, InvoiceCreate, InvoiceRead, IssueCreate, IssueRead, IssueUpdate, LeaveRequestCreate, LoginRequest, NotificationRead, OrganizationMemberRead, OrganizationRead, OrganizationSelect, PasswordResetConfirm, PasswordResetRequest, ProfileUpdate, ProjectCreate, ProjectRead, SalesOrderCreate, SalesOrderRead, SearchResult, SignupRequest, TestCaseCreate, TestCaseRead, TestResultRead, TestResultUpsert, TestRunCreate, TestRunRead, UserRead, WorkspaceDataRead, WorkspaceDataWrite)
 
 settings = get_settings()
 upload_dir = Path("uploads")
@@ -32,8 +32,18 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, version="2.0.0", lifespan=lifespan)
-app.mount("/uploads", StaticFiles(directory=upload_dir, check_dir=False), name="uploads")
 app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origins, allow_credentials=True, allow_methods=["GET", "POST", "PUT", "PATCH", "OPTIONS"], allow_headers=["Content-Type", "Authorization"])
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    if settings.app_env.lower() in {"prod", "production"}:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
 
 
 class NotificationHub:
@@ -78,6 +88,31 @@ def require_role(membership: Membership, *roles: str):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Required role: {' or '.join(roles)}")
 
 
+def require_workspace_data_role(membership: Membership, key: str):
+    if key.startswith("testrail-"):
+        require_role(membership, "owner", "admin", "manager", "qa")
+        return
+    role_by_key = {
+        "sales-records": ("owner", "admin", "manager", "sales"),
+        "inventory-records": ("owner", "admin", "manager", "sales"),
+        "finance-records": ("owner", "admin", "manager", "finance"),
+        "hr-records": ("owner", "admin", "manager", "hr"),
+    }
+    roles = role_by_key.get(key)
+    if key.startswith("operations-"):
+        roles = ("owner", "admin", "manager", "sales")
+    if roles:
+        require_role(membership, *roles)
+
+
+def ensure_project_assignee_membership(db: Session, organization_id: int, assignee_id: int | None):
+    if assignee_id is None:
+        return
+    membership = db.scalar(select(Membership).where(Membership.user_id == assignee_id, Membership.organization_id == organization_id))
+    if membership is None:
+        raise HTTPException(status_code=422, detail="Assignee must belong to this workspace")
+
+
 def project_for(db: Session, user: User, project_id: int) -> Project:
     project = db.get(Project, project_id)
     if project is None:
@@ -110,24 +145,34 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)):
         sequence += 1
         candidate = f"{base_slug}-{sequence}"
     organization = Organization(name=payload.organization_name, slug=candidate or base_slug)
-    user = User(email=payload.email.lower(), full_name=payload.full_name, password_hash=hash_password(payload.password))
+    user = User(email=payload.email.lower(), full_name=payload.full_name, password_hash=hash_password(payload.password), age=payload.age, mobile=payload.mobile.strip())
     db.add_all([organization, user]); db.flush()
     membership = Membership(user_id=user.id, organization_id=organization.id, role="owner")
     db.add_all([membership, Notification(user_id=user.id, title="Welcome to Elevate", body="Your workspace is ready.", kind="welcome")])
     audit(db, "created", f"organization:{organization.id}", user, "Created workspace")
     db.commit(); db.refresh(user)
-    return AuthResponse(access_token=create_access_token(user.id), user=user, organization_id=organization.id, role="owner")
+    return AuthResponse(access_token=create_access_token(user.id, user.token_version), user=user, organization_id=organization.id, role="owner")
 
 
 @app.post(f"{settings.api_prefix}/auth/login", response_model=AuthResponse, tags=["auth"])
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
-    user = db.scalar(select(User).where(User.email == payload.email.lower()))
+    email = payload.email.lower()
+    retry_after = datetime.now(timezone.utc) - timedelta(minutes=15)
+    failures = db.scalar(select(func.count(LoginAttempt.id)).where(LoginAttempt.email == email, LoginAttempt.attempted_at >= retry_after)) or 0
+    if failures >= 5:
+        raise HTTPException(status_code=429, detail="Too many sign-in attempts. Try again in 15 minutes.", headers={"Retry-After": "900"})
+    user = db.scalar(select(User).where(User.email == email))
     if user is None or not verify_password(payload.password, user.password_hash):
+        db.execute(delete(LoginAttempt).where(LoginAttempt.attempted_at < datetime.now(timezone.utc) - timedelta(days=1)))
+        db.add(LoginAttempt(email=email, attempted_at=datetime.now(timezone.utc)))
+        db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
     membership = db.scalar(select(Membership).where(Membership.user_id == user.id).order_by(Membership.id))
     if membership is None:
         raise HTTPException(status_code=403, detail="No workspace membership found")
-    return AuthResponse(access_token=create_access_token(user.id), user=user, organization_id=membership.organization_id, role=membership.role)
+    for attempt in db.scalars(select(LoginAttempt).where(LoginAttempt.email == email)).all(): db.delete(attempt)
+    db.commit()
+    return AuthResponse(access_token=create_access_token(user.id, user.token_version), user=user, organization_id=membership.organization_id, role=membership.role)
 
 
 @app.post(f"{settings.api_prefix}/auth/password-reset/request", tags=["auth"])
@@ -135,6 +180,8 @@ def request_password_reset(payload: PasswordResetRequest, background_tasks: Back
     user = db.scalar(select(User).where(User.email == payload.email.lower()))
     response = {"detail": "If the account exists, a reset link has been sent."}
     if user is None: return response
+    active_tokens = db.scalar(select(func.count(PasswordResetToken.id)).where(PasswordResetToken.user_id == user.id, PasswordResetToken.expires_at > datetime.now(timezone.utc))) or 0
+    if active_tokens >= 3: return response
     raw_token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     db.add(PasswordResetToken(user_id=user.id, token_hash=token_hash, expires_at=datetime.now(timezone.utc) + timedelta(minutes=30)))
@@ -153,7 +200,9 @@ def confirm_password_reset(payload: PasswordResetConfirm, db: Session = Depends(
     if record is None or record.used_at or record.expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail="Invalid or expired reset token")
     user = db.get(User, record.user_id)
-    user.password_hash = hash_password(payload.password); record.used_at = datetime.now(timezone.utc)
+    user.password_hash = hash_password(payload.password); user.token_version += 1; record.used_at = datetime.now(timezone.utc)
+    for other in db.scalars(select(PasswordResetToken).where(PasswordResetToken.user_id == user.id, PasswordResetToken.used_at.is_(None))).all():
+        other.used_at = datetime.now(timezone.utc)
     db.commit()
     return {"detail": "Password updated. You can now log in."}
 
@@ -170,15 +219,42 @@ def update_profile(payload: ProfileUpdate, user: User = Depends(get_current_user
     return user
 
 
+@app.post(f"{settings.api_prefix}/auth/logout", status_code=204, tags=["auth"])
+def logout(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    user.token_version += 1
+    db.commit()
+
+
 @app.post(f"{settings.api_prefix}/uploads", tags=["uploads"])
 async def upload_attachment(file: UploadFile = File(...), user: User = Depends(get_current_user)):
-    safe_name = re.sub(r"[^A-Za-z0-9._-]", "-", file.filename or "attachment")
+    allowed_types = {"image/jpeg", "image/png", "image/gif", "image/webp", "video/mp4", "video/webm", "video/quicktime", "application/pdf", "text/plain"}
+    if file.content_type not in allowed_types:
+        raise HTTPException(status_code=415, detail="This file type is not supported")
+    safe_name = re.sub(r"[^A-Za-z0-9._-]", "-", Path((file.filename or "attachment").replace("\\", "/")).name)
     stored_name = f"{user.id}-{secrets.token_hex(8)}-{safe_name}"
     target = upload_dir / stored_name
-    content = await file.read()
+    content = await file.read(15 * 1024 * 1024 + 1)
     if len(content) > 15 * 1024 * 1024: raise HTTPException(status_code=413, detail="Files must be 15 MB or smaller")
+    if not content: raise HTTPException(status_code=400, detail="The uploaded file is empty")
     target.write_bytes(content)
     return {"file_name": safe_name, "url": f"/uploads/{stored_name}"}
+
+
+@app.get("/uploads/{file_name}", tags=["uploads"])
+def download_attachment(file_name: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    match = re.fullmatch(r"(\d+)-[a-f0-9]{16}-[A-Za-z0-9._-]+", file_name)
+    if match is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    owner_id = int(match.group(1))
+    if owner_id != user.id:
+        organization_ids = select(Membership.organization_id).where(Membership.user_id == user.id)
+        shared_workspace = db.scalar(select(Membership.id).where(Membership.user_id == owner_id, Membership.organization_id.in_(organization_ids)))
+        if shared_workspace is None:
+            raise HTTPException(status_code=404, detail="File not found")
+    target = (upload_dir / file_name).resolve()
+    if upload_dir.resolve() not in target.parents or not target.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(target, filename=Path(file_name).name, content_disposition_type="inline")
 
 
 @app.get(f"{settings.api_prefix}/organizations", response_model=list[OrganizationRead], tags=["organizations"])
@@ -186,9 +262,79 @@ def organizations(user: User = Depends(get_current_user), db: Session = Depends(
     return db.scalars(select(Organization).join(Membership).where(Membership.user_id == user.id).order_by(Organization.name)).all()
 
 
+@app.post(f"{settings.api_prefix}/auth/select-organization", response_model=AuthResponse, tags=["organizations"])
+def select_organization(payload: OrganizationSelect, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    membership = membership_for(db, user, payload.organization_id)
+    organization = db.get(Organization, payload.organization_id)
+    return AuthResponse(access_token=create_access_token(user.id, user.token_version), user=user, organization_id=organization.id, role=membership.role)
+
+
+@app.get(f"{settings.api_prefix}/organizations/{{organization_id}}/members", response_model=list[OrganizationMemberRead], tags=["organizations"])
+def organization_members(organization_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    membership_for(db, user, organization_id)
+    rows = db.execute(select(User.id, User.email, User.full_name, Membership.role).join(Membership, Membership.user_id == User.id).where(Membership.organization_id == organization_id).order_by(User.full_name)).all()
+    return [OrganizationMemberRead(id=row.id, email=row.email, full_name=row.full_name, role=row.role) for row in rows]
+
+
+@app.post(f"{settings.api_prefix}/organizations/{{organization_id}}/invitations", response_model=InvitationRead, status_code=201, tags=["organizations"])
+def create_invitation(organization_id: int, payload: InvitationCreate, background_tasks: BackgroundTasks, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    membership = membership_for(db, user, organization_id)
+    require_role(membership, "owner", "admin", "manager")
+    requested_role = payload.role.lower()
+    if membership.role == "manager" and requested_role not in {"member", "qa"}:
+        raise HTTPException(status_code=403, detail="Managers can invite members or QA roles only")
+    email = payload.email.lower()
+    existing_user = db.scalar(select(User).where(User.email == email))
+    if existing_user and db.scalar(select(Membership.id).where(Membership.user_id == existing_user.id, Membership.organization_id == organization_id)):
+        raise HTTPException(status_code=409, detail="This person is already a workspace member")
+    now = datetime.now(timezone.utc)
+    pending = db.scalar(select(WorkspaceInvitation).where(WorkspaceInvitation.organization_id == organization_id, WorkspaceInvitation.email == email, WorkspaceInvitation.accepted_at.is_(None), WorkspaceInvitation.expires_at > now))
+    if pending:
+        raise HTTPException(status_code=409, detail="An invitation for this email is already pending")
+    raw_token = secrets.token_urlsafe(32)
+    invitation = WorkspaceInvitation(organization_id=organization_id, email=email, role=requested_role, token_hash=hashlib.sha256(raw_token.encode()).hexdigest(), invited_by_id=user.id, expires_at=now + timedelta(days=7))
+    db.add(invitation); db.flush()
+    organization = db.get(Organization, organization_id)
+    invite_url = f"{settings.frontend_url}/accept-invitation?token={raw_token}"
+    background_tasks.add_task(send_workspace_invitation, email, invite_url, organization.name, requested_role)
+    audit(db, "invited", f"organization:{organization_id}", user, f"Invited {email} as {requested_role}")
+    db.commit(); db.refresh(invitation)
+    return InvitationRead.model_validate(invitation).model_copy(update={"development_invite_url": invite_url if settings.app_env == "development" and not settings.smtp_host else None})
+
+
+@app.get(f"{settings.api_prefix}/organizations/{{organization_id}}/invitations", response_model=list[InvitationRead], tags=["organizations"])
+def list_invitations(organization_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    membership = membership_for(db, user, organization_id)
+    require_role(membership, "owner", "admin", "manager")
+    return db.scalars(select(WorkspaceInvitation).where(WorkspaceInvitation.organization_id == organization_id).order_by(WorkspaceInvitation.created_at.desc())).all()
+
+
+@app.post(f"{settings.api_prefix}/invitations/accept", response_model=AuthResponse, tags=["organizations"])
+def accept_invitation(payload: InvitationAccept, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    token_hash = hashlib.sha256(payload.token.encode()).hexdigest()
+    invitation = db.scalar(select(WorkspaceInvitation).where(WorkspaceInvitation.token_hash == token_hash))
+    if invitation is None or invitation.accepted_at is not None:
+        raise HTTPException(status_code=400, detail="Invitation is invalid or already used")
+    expires_at = invitation.expires_at
+    if expires_at.tzinfo is None: expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Invitation has expired")
+    if user.email.lower() != invitation.email.lower():
+        raise HTTPException(status_code=403, detail="Sign in with the email address this invitation was sent to")
+    membership = db.scalar(select(Membership).where(Membership.user_id == user.id, Membership.organization_id == invitation.organization_id))
+    if membership is None:
+        membership = Membership(user_id=user.id, organization_id=invitation.organization_id, role=invitation.role)
+        db.add(membership)
+    invitation.accepted_at = datetime.now(timezone.utc)
+    organization = db.get(Organization, invitation.organization_id)
+    audit(db, "joined", f"organization:{organization.id}", user, "Accepted workspace invitation")
+    db.commit(); db.refresh(user)
+    return AuthResponse(access_token=create_access_token(user.id, user.token_version), user=user, organization_id=organization.id, role=membership.role)
+
+
 @app.post(f"{settings.api_prefix}/organizations/{{organization_id}}/projects", response_model=ProjectRead, status_code=201, tags=["projects"])
 def create_project(organization_id: int, payload: ProjectCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    membership_for(db, user, organization_id)
+    require_role(membership_for(db, user, organization_id), "owner", "admin", "manager")
     key = payload.key.upper()
     if db.scalar(select(Project).where(Project.organization_id == organization_id, Project.key == key)):
         raise HTTPException(status_code=409, detail="Project key already exists")
@@ -206,6 +352,7 @@ def list_projects(organization_id: int, user: User = Depends(get_current_user), 
 @app.post(f"{settings.api_prefix}/projects/{{project_id}}/issues", response_model=IssueRead, status_code=201, tags=["issues"])
 def create_issue(project_id: int, payload: IssueCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     project = project_for(db, user, project_id)
+    ensure_project_assignee_membership(db, project.organization_id, payload.assignee_id)
     issue_number = (db.scalar(select(func.count(Issue.id)).where(Issue.project_id == project.id)) or 0) + 1
     issue = Issue(project_id=project.id, issue_key=f"{project.key}-{issue_number}", title=payload.title, description=payload.description, issue_type=payload.issue_type, priority=payload.priority, assignee_id=payload.assignee_id, reporter_id=user.id, sprint=payload.sprint)
     db.add(issue); db.flush(); audit(db, "created", f"issue:{issue.id}", user, f"Created {issue.issue_key}")
@@ -224,7 +371,9 @@ def list_issues(project_id: int, user: User = Depends(get_current_user), db: Ses
 def update_issue(issue_id: int, payload: IssueUpdate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     issue = db.get(Issue, issue_id)
     if issue is None: raise HTTPException(status_code=404, detail="Issue not found")
-    project_for(db, user, issue.project_id)
+    project = project_for(db, user, issue.project_id)
+    if "assignee_id" in payload.model_fields_set:
+        ensure_project_assignee_membership(db, project.organization_id, payload.assignee_id)
     for field, value in payload.model_dump(exclude_unset=True).items(): setattr(issue, field, value)
     audit(db, "updated", f"issue:{issue.id}", user, f"Updated {issue.issue_key}"); db.commit(); db.refresh(issue)
     return issue
@@ -261,6 +410,8 @@ def add_issue_attachment(issue_id: int, payload: AttachmentCreate, user: User = 
     issue = db.get(Issue, issue_id)
     if issue is None: raise HTTPException(status_code=404, detail="Issue not found")
     project_for(db, user, issue.project_id)
+    if not payload.url.startswith("/uploads/"):
+        raise HTTPException(status_code=422, detail="Attachments must reference an uploaded workspace file")
     attachment = IssueAttachment(issue_id=issue_id, uploaded_by_id=user.id, **payload.model_dump())
     db.add(attachment); audit(db, "attached", f"issue:{issue_id}", user, payload.file_name); db.commit(); db.refresh(attachment)
     return attachment
@@ -268,7 +419,12 @@ def add_issue_attachment(issue_id: int, payload: AttachmentCreate, user: User = 
 
 @app.post(f"{settings.api_prefix}/projects/{{project_id}}/test-cases", response_model=TestCaseRead, status_code=201, tags=["quality"])
 def create_test_case(project_id: int, payload: TestCaseCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    project_for(db, user, project_id)
+    project = project_for(db, user, project_id)
+    require_role(membership_for(db, user, project.organization_id), "owner", "admin", "manager", "qa")
+    if payload.linked_issue_id:
+        linked_issue = db.get(Issue, payload.linked_issue_id)
+        if linked_issue is None or linked_issue.project_id != project_id:
+            raise HTTPException(status_code=422, detail="Linked issue must belong to this project")
     test_case = TestCase(project_id=project_id, **payload.model_dump())
     db.add(test_case); db.flush(); audit(db, "created", f"test_case:{test_case.id}", user, "Created test case"); db.commit(); db.refresh(test_case)
     return test_case
@@ -282,19 +438,31 @@ def list_test_cases(project_id: int, user: User = Depends(get_current_user), db:
 
 @app.post(f"{settings.api_prefix}/projects/{{project_id}}/test-runs", response_model=TestRunRead, status_code=201, tags=["quality"])
 def create_test_run(project_id: int, payload: TestRunCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    project_for(db, user, project_id)
+    project = project_for(db, user, project_id)
+    require_role(membership_for(db, user, project.organization_id), "owner", "admin", "manager", "qa")
     test_run = TestRun(project_id=project_id, **payload.model_dump())
     db.add(test_run); db.flush(); audit(db, "created", f"test_run:{test_run.id}", user, "Created test run"); db.commit(); db.refresh(test_run)
     return test_run
+
+
+@app.get(f"{settings.api_prefix}/projects/{{project_id}}/test-runs", response_model=list[TestRunRead], tags=["quality"])
+def list_test_runs(project_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    project_for(db, user, project_id)
+    return db.scalars(select(TestRun).where(TestRun.project_id == project_id).order_by(TestRun.created_at.desc())).all()
 
 
 @app.post(f"{settings.api_prefix}/test-runs/{{test_run_id}}/results", response_model=TestResultRead, tags=["quality"])
 def upsert_test_result(test_run_id: int, payload: TestResultUpsert, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     test_run = db.get(TestRun, test_run_id)
     if test_run is None: raise HTTPException(status_code=404, detail="Test run not found")
-    project_for(db, user, test_run.project_id)
+    project = project_for(db, user, test_run.project_id)
+    require_role(membership_for(db, user, project.organization_id), "owner", "admin", "manager", "qa")
     test_case = db.get(TestCase, payload.test_case_id)
     if test_case is None or test_case.project_id != test_run.project_id: raise HTTPException(status_code=422, detail="Test case is not part of this project")
+    if payload.defect_issue_id:
+        defect = db.get(Issue, payload.defect_issue_id)
+        if defect is None or defect.project_id != test_run.project_id:
+            raise HTTPException(status_code=422, detail="Linked defect must belong to this project")
     result = db.scalar(select(TestResult).where(TestResult.test_run_id == test_run_id, TestResult.test_case_id == payload.test_case_id))
     if result is None: result = TestResult(test_run_id=test_run_id, test_case_id=payload.test_case_id, tested_by_id=user.id); db.add(result)
     for field, value in payload.model_dump().items(): setattr(result, field, value)
@@ -319,7 +487,10 @@ def add_test_evidence(result_id: int, payload: AttachmentCreate, user: User = De
     result = db.get(TestResult, result_id)
     if result is None: raise HTTPException(status_code=404, detail="Test result not found")
     test_run = db.get(TestRun, result.test_run_id)
-    project_for(db, user, test_run.project_id)
+    project = project_for(db, user, test_run.project_id)
+    require_role(membership_for(db, user, project.organization_id), "owner", "admin", "manager", "qa")
+    if not payload.url.startswith("/uploads/"):
+        raise HTTPException(status_code=422, detail="Evidence must reference an uploaded workspace file")
     evidence = TestEvidence(test_result_id=result_id, uploaded_by_id=user.id, **payload.model_dump())
     db.add(evidence); audit(db, "evidence_added", f"test_result:{result_id}", user, payload.file_name); db.commit(); db.refresh(evidence)
     return evidence
@@ -407,6 +578,7 @@ def decide_approval(approval_id: int, payload: ApprovalDecision, user: User = De
     if approval is None: raise HTTPException(status_code=404, detail="Approval request not found")
     membership = membership_for(db, user, approval.organization_id)
     if membership.role not in {"owner", "admin", "manager"}: raise HTTPException(status_code=403, detail="Manager permission required")
+    if approval.status != "pending": raise HTTPException(status_code=409, detail="This approval has already been decided")
     approval.status, approval.approved_by_id, approval.decision_note = payload.decision, user.id, payload.note
     audit(db, payload.decision, f"approval:{approval.id}", user, "Approval decision recorded")
     notify(db, approval.requested_by_id, f"Approval {payload.decision}", approval.title, "approval")
@@ -423,6 +595,15 @@ def list_approvals(organization_id: int, user: User = Depends(get_current_user),
 @app.get(f"{settings.api_prefix}/notifications", response_model=list[NotificationRead], tags=["notifications"])
 def notifications(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return db.scalars(select(Notification).where(Notification.user_id == user.id).order_by(Notification.created_at.desc()).limit(50)).all()
+
+
+@app.patch(f"{settings.api_prefix}/notifications/read-all", response_model=list[NotificationRead], tags=["notifications"])
+def read_all_notifications(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    unread = db.scalars(select(Notification).where(Notification.user_id == user.id, Notification.is_read.is_(False))).all()
+    for notification in unread:
+        notification.is_read = True
+    db.commit()
+    return unread
 
 
 @app.patch(f"{settings.api_prefix}/notifications/{{notification_id}}/read", response_model=NotificationRead, tags=["notifications"])
@@ -465,7 +646,7 @@ def global_search(organization_id: int, q: str, user: User = Depends(get_current
 # Tenant-scoped compatibility endpoints used by the existing ERP screens.
 @app.get(f"{settings.api_prefix}/organizations/{{organization_id}}/data/{{key}}", response_model=WorkspaceDataRead, tags=["workspace"])
 def get_workspace_data(organization_id: int, key: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    membership_for(db, user, organization_id)
+    require_workspace_data_role(membership_for(db, user, organization_id), key)
     record = db.scalar(select(WorkspaceData).where(WorkspaceData.organization_id == organization_id, WorkspaceData.key == key))
     if record is None: raise HTTPException(status_code=404, detail="No data saved for this module")
     return record
@@ -473,11 +654,11 @@ def get_workspace_data(organization_id: int, key: str, user: User = Depends(get_
 
 @app.put(f"{settings.api_prefix}/organizations/{{organization_id}}/data/{{key}}", response_model=WorkspaceDataRead, tags=["workspace"])
 def save_workspace_data(organization_id: int, key: str, payload: WorkspaceDataWrite, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    membership_for(db, user, organization_id)
+    require_workspace_data_role(membership_for(db, user, organization_id), key)
     record = db.scalar(select(WorkspaceData).where(WorkspaceData.organization_id == organization_id, WorkspaceData.key == key))
     if record is None: record = WorkspaceData(organization_id=organization_id, key=key, value=payload.value); db.add(record); event_action = "created"
     else: record.value = payload.value; event_action = "updated"
-    audit(db, event_action, f"workspace:{organization_id}:{key}", user, "ERP workspace data saved"); db.commit(); db.refresh(record)
+    audit(db, event_action, f"workspace:{organization_id}:{key}", user, "Workspace data saved"); db.commit(); db.refresh(record)
     return record
 
 

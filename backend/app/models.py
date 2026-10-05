@@ -20,6 +20,18 @@ class User(Timestamped, Base):
     password_hash: Mapped[str] = mapped_column(String(512))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    mobile: Mapped[str] = mapped_column(String(40), default="")
+    address: Mapped[str] = mapped_column(Text, default="")
+    date_of_birth: Mapped[date | None] = mapped_column(Date, nullable=True)
+    age: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    token_version: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class LoginAttempt(Base):
+    __tablename__ = "login_attempts"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), index=True)
+    attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
 class Organization(Timestamped, Base):
@@ -36,6 +48,18 @@ class Membership(Timestamped, Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
     role: Mapped[str] = mapped_column(String(30), default="member")  # owner, admin, manager, qa, member
+
+
+class WorkspaceInvitation(Timestamped, Base):
+    __tablename__ = "workspace_invitations"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    email: Mapped[str] = mapped_column(String(255), index=True)
+    role: Mapped[str] = mapped_column(String(30), default="member")
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    invited_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Project(Timestamped, Base):

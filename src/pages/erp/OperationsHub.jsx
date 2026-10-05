@@ -24,7 +24,7 @@ export default function OperationsHub({ type }) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [notice, setNotice] = useState('')
-  useEffect(() => { loadErpData(keyFor(type), config.rows).then(setRecords) }, [type])
+  useEffect(() => { loadErpData(keyFor(type), config.rows).then(setRecords) }, [type, config.rows])
   const shown = useMemo(() => records.filter(row => row.join(' ').toLowerCase().includes(query.toLowerCase())), [records, query])
   const create = async event => {
     event.preventDefault()

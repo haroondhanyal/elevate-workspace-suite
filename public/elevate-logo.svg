@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="440" height="112" viewBox="0 0 440 112" fill="none" role="img" aria-labelledby="title">
+  <title id="title">Elevate Workspace</title>
+  <defs>
+    <linearGradient id="mark" x1="10" y1="9" x2="92" y2="93" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6485F2"/>
+      <stop offset="1" stop-color="#3C5FD0"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="96" height="96" rx="27" fill="url(#mark)"/>
+  <path d="M57 24 62 45 83 50 62 56 57 78 51 56 30 50 51 45 57 24Z" fill="white"/>
+  <circle cx="78" cy="77" r="5" fill="#C9D5FF"/>
+  <text x="126" y="56" fill="#17243D" font-family="Manrope, Arial, sans-serif" font-size="34" font-weight="800" letter-spacing="-1.5">Elevate</text>
+  <text x="128" y="82" fill="#72809A" font-family="Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="3.1">WORKSPACE</text>
+</svg>

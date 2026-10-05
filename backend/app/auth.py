@@ -41,10 +41,10 @@ def _decode(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
 
 
-def create_access_token(user_id: int) -> str:
+def create_access_token(user_id: int, token_version: int = 0) -> str:
     settings = get_settings()
     header = _encode(json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(",", ":")).encode())
-    payload = _encode(json.dumps({"sub": str(user_id), "exp": int((datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_minutes)).timestamp())}, separators=(",", ":")).encode())
+    payload = _encode(json.dumps({"sub": str(user_id), "ver": token_version, "exp": int((datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_minutes)).timestamp())}, separators=(",", ":")).encode())
     signature = _encode(hmac.new(settings.secret_key.encode(), f"{header}.{payload}".encode(), hashlib.sha256).digest())
     return f"{header}.{payload}.{signature}"
 
@@ -61,6 +61,6 @@ def get_current_user(credentials: HTTPAuthorizationCredentials | None = Depends(
         user = db.get(User, int(data["sub"]))
     except (ValueError, KeyError, json.JSONDecodeError):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token") from None
-    if user is None or not user.is_active:
+    if user is None or not user.is_active or int(data.get("ver", 0)) != user.token_version:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User is unavailable")
     return user

@@ -24,13 +24,13 @@ function ErpDashboard() {
   const [active, setActive] = useState('Overview')
   const [notice, setNotice] = useState('')
   const today = useMemo(() => new Intl.DateTimeFormat('en', { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date()), [])
-  const go = (item) => { const path = ({ CRM: '/erp/crm', Sales: '/erp/sales', Purchases: '/erp/purchase', Inventory: '/erp/inventory', Finance: '/erp/finance', 'Human resources': '/erp/hr', Approvals: '/erp/approvals', 'Customer support': '/erp/support' })[item]; if (path) window.location.href = path; else { setActive(item); setNotice(`${item} module is ready to configure.`) } }
+  const go = (item) => { const path = ({ CRM: '/erp/crm', Sales: '/erp/sales', Purchases: '/erp/purchase', Inventory: '/erp/inventory', Finance: '/erp/finance', 'Human resources': '/erp/hr', Approvals: '/erp/approvals', 'Customer support': '/erp/support' })[item]; if (path) window.location.assign(path); else { setActive(item); setNotice(`${item} module is ready to configure.`) } }
 
   return <main className="erp-app">
     <style>{`.erp-app-link{display:grid;grid-template-columns:28px 1fr;column-gap:8px;align-items:center;margin:3px 0;padding:8px;border:1px solid transparent;border-radius:8px;color:#536078;text-decoration:none}.erp-app-link:hover,.erp-app-link.active{border-color:#dce5ff;background:#f4f7ff}.erp-app-link .erp-app-icon{display:grid;grid-row:span 2;place-items:center;width:27px;height:27px;border-radius:7px;color:#fff;background:#4169e1;font:800 14px Manrope,sans-serif}.erp-app-link.jira .erp-app-icon{background:#76519d}.erp-app-link.testrail .erp-app-icon{background:#d84e58}.erp-app-link b{font-size:10px}.erp-app-link small{margin-top:1px;color:#8d98aa;font-size:8px}`}</style>
     <aside className="erp-sidebar">
       <a className="erp-brand" href="/erp"><span>e</span><b>Elevate</b><small>ERP</small></a>
-      <button className="erp-company"><i>RH</i><span><b>RH98 Group</b><small>Business workspace</small></span><em>⌄</em></button>
+      <button className="erp-company"><i>RH</i><span><b>Elevate Group</b><small>Business workspace</small></span><em>⌄</em></button>
       <nav className="erp-nav">
         <p>Applications</p>
         <a className="erp-app-link" href="/workspace"><span className="erp-app-icon">✦</span><b>Command Center</b><small>Cross-team overview</small></a>

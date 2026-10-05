@@ -30,6 +30,8 @@ class SignupRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     organization_name: str = Field(min_length=2, max_length=160)
+    age: int | None = Field(default=None, ge=13, le=120)
+    mobile: str = Field(default="", max_length=40)
 
 
 class LoginRequest(BaseModel):
@@ -52,11 +54,19 @@ class UserRead(ORMModel):
     full_name: str
     is_active: bool
     avatar_url: str | None = None
+    mobile: str = ""
+    address: str = ""
+    date_of_birth: date | None = None
+    age: int | None = None
 
 
 class ProfileUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=160)
     avatar_url: str | None = Field(default=None, max_length=500)
+    mobile: str | None = Field(default=None, max_length=40)
+    address: str | None = Field(default=None, max_length=2000)
+    date_of_birth: date | None = None
+    age: int | None = Field(default=None, ge=13, le=120)
 
 
 class AuthResponse(BaseModel):
@@ -71,6 +81,35 @@ class OrganizationRead(ORMModel):
     id: int
     name: str
     slug: str
+
+
+class OrganizationSelect(BaseModel):
+    organization_id: int
+
+
+class OrganizationMemberRead(BaseModel):
+    id: int
+    email: EmailStr
+    full_name: str
+    role: str
+
+
+class InvitationCreate(BaseModel):
+    email: EmailStr
+    role: str = Field(default="member", pattern=r"^(member|manager|qa|sales|finance|hr)$")
+
+
+class InvitationAccept(BaseModel):
+    token: str = Field(min_length=20, max_length=500)
+
+
+class InvitationRead(ORMModel):
+    id: int
+    email: EmailStr
+    role: str
+    expires_at: datetime
+    accepted_at: datetime | None = None
+    development_invite_url: str | None = None
 
 
 class ProjectCreate(BaseModel):
